@@ -1,0 +1,40 @@
+name: Package compatibility-specific artifacts
+
+# Packaging uploads a workflow artifact; it does not publish a release or push
+# an image. A maintainer can review the validated files before distribution.
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_version:
+        description: Plugin version for the artifact name
+        required: true
+        default: 0.1.0-dev
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.1
+          cache: true
+      - run: make test test-race integration
+      - run: make package
+        env:
+          PLUGIN_VERSION: ${{ inputs.plugin_version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nakama-playflow-nakama-3.41.0-linux-amd64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+      - if: always()
+        run: docker compose -f deploy/compose.yml down

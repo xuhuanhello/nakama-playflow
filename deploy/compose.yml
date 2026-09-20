@@ -1,0 +1,110 @@
+name: pf-nakama-local
+
+x-fleet-environment: &fleet-environment
+  FLEET_DEPLOYMENT_ID: local
+  FLEET_DATABASE_URL: postgres://postgres:local-postgres-password@postgres:5432/fleet?sslmode=disable
+  FLEET_PLAYFLOW_URL: http://playflow-mock:8090/api
+  FLEET_PLAYFLOW_API_KEY: test-playflow-key
+  FLEET_CONTROL_URL: http://nakama:7350
+  FLEET_BUILD_HASH: local-build
+  FLEET_REGION: local
+  FLEET_COMPUTE_SIZE: small
+  FLEET_PORT_NAME: game
+  FLEET_PROVIDER_VERSION: "1"
+  FLEET_MAX_ROOMS: "2"
+  FLEET_MIN_INSTANCES: "0"
+  FLEET_MAX_INSTANCES: "3"
+  FLEET_ADMIN_TOKEN: local-admin-token-for-development-only
+  # Deterministic 32-byte test key, not suitable for any public deployment.
+  FLEET_SIGNING_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+  FLEET_ALLOW_HTTP: "true"
+  FLEET_MODE: mock
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local-postgres-password
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - fleet-postgres-data:/var/lib/postgresql/data
+      - ./postgres/001-databases.sql:/docker-entrypoint-initdb.d/001-databases.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  nakama-migrate:
+    image: registry.heroiclabs.com/heroiclabs/nakama:3.41.0@sha256:ca9f3fe65c90f56860fe5d7cd024868a395cb1a001abb9912bf87ef47d605349
+    platform: linux/amd64
+    command: [migrate, up, --database.address, "postgres:local-postgres-password@postgres:5432/nakama?sslmode=disable", --logger.level, INFO]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  fleet-migrate:
+    image: pf-nakama-local-tools:dev
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: tools
+    entrypoint: [/usr/local/bin/fleet-migrate]
+    environment:
+      FLEET_DATABASE_URL: postgres://postgres:local-postgres-password@postgres:5432/fleet?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  playflow-mock:
+    image: pf-nakama-local-tools:dev
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: tools
+    entrypoint: [/usr/local/bin/playflow-mock]
+    ports:
+      - "127.0.0.1:18090:8090"
+    environment:
+      PLAYFLOW_MOCK_ADDR: ":8090"
+      PLAYFLOW_MOCK_API_KEY: test-playflow-key
+      PLAYFLOW_MOCK_TEST_MODE: "true"
+
+  nakama:
+    image: pf-nakama-local:dev
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: runtime
+    command: [--config, /nakama/data/local.yml, --database.address, "postgres:local-postgres-password@postgres:5432/nakama?sslmode=disable"]
+    environment: *fleet-environment
+    stop_grace_period: 15s
+    volumes:
+      - ./nakama.local.yml:/nakama/data/local.yml:ro
+    ports:
+      - "127.0.0.1:17350:7350"
+      - "127.0.0.1:17351:7351"
+    depends_on:
+      nakama-migrate:
+        condition: service_completed_successfully
+      fleet-migrate:
+        condition: service_completed_successfully
+      playflow-mock:
+        condition: service_started
+    healthcheck:
+      test: [CMD, /nakama/nakama, healthcheck]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+volumes:
+  fleet-postgres-data:

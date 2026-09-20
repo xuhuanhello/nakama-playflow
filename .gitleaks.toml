@@ -1,0 +1,20 @@
+title = "Public development fixtures only"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented deterministic local Compose signing fixture (bytes 0 through 31)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)deploy/compose\.yml$''']
+regexTarget = "secret"
+regexes = ['''^AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8$''']
+
+[[allowlists]]
+description = "Exact public local-only admin test credential in the smoke probe"
+targetRules = ["curl-auth-header"]
+condition = "AND"
+paths = ['''(^|/)scripts/check-plugin-load\.sh$''']
+regexTarget = "secret"
+regexes = ['''^(Authorization: )?(Bearer )?local-admin-token-for-development-only$''']

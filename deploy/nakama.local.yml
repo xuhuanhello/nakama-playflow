@@ -1,0 +1,16 @@
+# LOCAL DEVELOPMENT ONLY. Services are bound to loopback in compose.yml.
+name: playflow-local
+shutdown_grace_sec: 10
+logger:
+  level: INFO
+session:
+  encryption_key: local-only-session-encryption-key
+  refresh_encryption_key: local-only-refresh-encryption-key
+socket:
+  server_key: local-server-key
+runtime:
+  http_key: local-http-key
+console:
+  username: admin
+  password: local-console-password
+  signing_key: local-only-console-signing-key
