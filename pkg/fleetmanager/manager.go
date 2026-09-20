@@ -51,15 +51,24 @@ func New(cfg Config, store state.Store, provider Provider) (*Manager, error) {
 	if store == nil || provider == nil {
 		return nil, fmt.Errorf("store and provider are required")
 	}
+	cfg = cfg.snapshot()
 	// One namespace is one immutable build/region pool. Refuse config drift
 	// across controllers instead of assigning new clients to old game binaries.
-	profileData, _ := json.Marshal([]any{cfg.BuildHash, cfg.Region, cfg.ProviderVersion, cfg.MaxRooms, cfg.PortName, cfg.ComputeSize, encoded(derive(cfg.SigningKey, "profile"))})
+	profileParts := []any{cfg.BuildHash, cfg.Region, cfg.ProviderVersion, cfg.MaxRooms, cfg.PortName, cfg.ComputeSize, encoded(derive(cfg.SigningKey, "profile"))}
+	if len(cfg.ServerEnvironment) > 0 {
+		// json.Marshal sorts map keys. Only a keyed fingerprint reaches state;
+		// secret values are never persisted or exposed for offline guessing.
+		values, _ := json.Marshal(cfg.ServerEnvironment)
+		profileParts = append(profileParts, encoded(derive(cfg.SigningKey, "server-environment:"+string(values))))
+	}
+	// Preserve the existing namespace fingerprint when no custom env is set.
+	profileData, _ := json.Marshal(profileParts)
 	profile := fmt.Sprintf("%x", sha256.Sum256(profileData))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := store.Update(ctx, func(s *state.State) error {
 		if s.Profile != "" && s.Profile != profile {
-			return fmt.Errorf("fleet namespace profile changed: use a new deployment ID for a new build, region or signing key")
+			return fmt.Errorf("fleet namespace profile changed: use a new deployment ID for changed build, region, capacity, signing key or server environment")
 		}
 		for _, w := range s.Workers {
 			if w.BuildHash != cfg.BuildHash || w.Region != cfg.Region {
@@ -80,7 +89,7 @@ func (m *Manager) Init(nk runtime.NakamaModule, handler runtime.FmCallbackHandle
 	m.callbackHandler = handler
 	return nil
 }
-func (m *Manager) Config() Config                                     { return m.cfg }
+func (m *Manager) Config() Config                                     { return m.cfg.snapshot() }
 func (m *Manager) Snapshot(ctx context.Context) (*state.State, error) { return m.store.View(ctx) }
 
 func (m *Manager) Run(ctx context.Context, onError func(error)) {

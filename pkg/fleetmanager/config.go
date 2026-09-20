@@ -2,12 +2,21 @@ package fleetmanager
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+)
+
+const (
+	maxServerEnvironmentBytes      = 32 << 10
+	maxServerEnvironmentEntries    = 64
+	maxServerEnvironmentValueBytes = 8 << 10
 )
 
 type Config struct {
@@ -16,9 +25,11 @@ type Config struct {
 	ProviderVersion, MaxRooms, MinInstances, MaxInstances              int
 	AdminToken                                                         string
 	SigningKey                                                         []byte
-	AllowHTTP                                                          bool
-	Mode                                                               string
-	Interval                                                           time.Duration
+	// Values are supplied only to the game server, never stored in fleet state.
+	ServerEnvironment map[string]string `json:"-"`
+	AllowHTTP         bool
+	Mode              string
+	Interval          time.Duration
 
 	LaunchTimeout, AllocationTimeout, PrepareTimeout int64
 	ReservationTTL, ReconnectSeconds                 int64
@@ -59,6 +70,10 @@ func FromEnv() (Config, error) {
 		return c, fmt.Errorf("FLEET_SIGNING_KEY must be base64url")
 	}
 	c.SigningKey = key
+	c.ServerEnvironment, err = parseServerEnvironment(os.Getenv("FLEET_SERVER_ENV_JSON"))
+	if err != nil {
+		return c, err
+	}
 	return c, c.Validate()
 }
 func (c Config) Validate() error {
@@ -84,8 +99,99 @@ func (c Config) Validate() error {
 	if c.Mode != "production" && c.Mode != "mock" {
 		return fmt.Errorf("unknown fleet mode")
 	}
+	return validateServerEnvironment(c.ServerEnvironment)
+}
+
+// This decoder deliberately rejects duplicate keys, non-string values and null.
+// Never include JSON input or decoder errors in diagnostics: values can be secrets.
+func parseServerEnvironment(raw string) (map[string]string, error) {
+	if len(raw) > maxServerEnvironmentBytes || !utf8.ValidString(raw) {
+		return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON must be valid UTF-8 within 32 KiB")
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON must be an object of string values")
+	}
+	values := make(map[string]string)
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains invalid JSON")
+		}
+		name, ok := key.(string)
+		if !ok {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains an invalid variable name")
+		}
+		if _, exists := values[name]; exists {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains duplicate variable names")
+		}
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains invalid JSON")
+		}
+		text, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON values must be strings")
+		}
+		values[name] = text
+		if len(values) > maxServerEnvironmentEntries {
+			return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON permits at most 64 variables")
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains invalid JSON")
+	}
+	if _, err = decoder.Token(); err != io.EOF {
+		return nil, fmt.Errorf("FLEET_SERVER_ENV_JSON contains trailing data")
+	}
+	if err = validateServerEnvironment(values); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func validateServerEnvironment(values map[string]string) error {
+	if len(values) > maxServerEnvironmentEntries {
+		return fmt.Errorf("FLEET_SERVER_ENV_JSON permits at most 64 variables")
+	}
+	for name, value := range values {
+		if len(name) == 0 || len(name) > 128 || strings.HasPrefix(strings.ToUpper(name), "FLEET_") {
+			return fmt.Errorf("FLEET_SERVER_ENV_JSON contains an invalid or reserved variable name")
+		}
+		for i := 0; i < len(name); i++ {
+			c := name[i]
+			if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c == '_' || i > 0 && c >= '0' && c <= '9') {
+				return fmt.Errorf("FLEET_SERVER_ENV_JSON variable names must match [A-Za-z_][A-Za-z0-9_]*")
+			}
+		}
+		if len(value) > maxServerEnvironmentValueBytes || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("FLEET_SERVER_ENV_JSON values must be UTF-8 without NUL and at most 8 KiB")
+		}
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil || len(encoded) > maxServerEnvironmentBytes {
+		return fmt.Errorf("FLEET_SERVER_ENV_JSON encoded size must not exceed 32 KiB")
+	}
 	return nil
 }
+
+func (c Config) snapshot() Config {
+	c.SigningKey = append([]byte(nil), c.SigningKey...)
+	if c.ServerEnvironment != nil {
+		values := make(map[string]string, len(c.ServerEnvironment))
+		for name, value := range c.ServerEnvironment {
+			values[name] = value
+		}
+		c.ServerEnvironment = values
+	}
+	return c
+}
+
 func env(key, fallback string) string {
 	if s := strings.TrimSpace(os.Getenv(key)); s != "" {
 		return s

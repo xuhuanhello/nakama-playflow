@@ -338,6 +338,11 @@ func (m *Manager) start(ctx context.Context, w *state.Worker) error {
 		CustomData:           map[string]any{"fleet_owner": m.cfg.DeploymentID, "worker_id": w.ID, "build_hash": m.cfg.BuildHash},
 		EnvironmentVariables: map[string]string{"FLEET_WORKER_ID": w.ID, "FLEET_BOOTSTRAP_TOKEN": encoded(derive(m.cfg.SigningKey, "bootstrap:"+w.ID)), "FLEET_ADMISSION_KEY": encoded(derive(m.cfg.SigningKey, "admission:"+w.ID)), "FLEET_CONTROL_URL": m.cfg.ControlURL, "FLEET_BUILD_HASH": m.cfg.BuildHash, "FLEET_MAX_ROOMS": fmt.Sprint(w.MaxRooms)},
 	}
+	// Validation reserves FLEET_* for the controller. Copy custom values into
+	// each request so provider code cannot mutate the immutable pool profile.
+	for name, value := range m.cfg.ServerEnvironment {
+		req.EnvironmentVariables[name] = value
+	}
 	call, cancel := context.WithTimeout(ctx, 5*time.Second)
 	result, callErr := m.provider.Start(call, req)
 	cancel()

@@ -186,6 +186,28 @@ hooks run, and give the container a longer stop grace period. Local defaults are
 it does not by itself drain active Unity matches or replace the fleet's drain
 protocol.
 
+## Game server environment
+
+`FLEET_SERVER_ENV_JSON` optionally supplies additional environment variables to
+new PlayFlow game servers. Use a JSON object whose values are all strings, for
+example `{"GAME_PORT":"7770","GAME_LOG_LEVEL":"info"}`. Omit it or use `{}` to
+preserve the existing behavior. In Compose env files, single-quote the entire JSON
+value to prevent Compose from interpolating dollar signs in values.
+
+Names must match `[A-Za-z_][A-Za-z0-9_]*`, with at most 128 characters; `FLEET_*`
+names are reserved regardless of case. Duplicate keys, non-string values, NUL
+characters and invalid UTF-8 are rejected. Local limits are 64 variables, 8 KiB
+per value and 32 KiB for the encoded object. These are adapter limits; the hosting
+provider may impose additional limits.
+
+Values are sent only in the provider's `environment_variables` request field.
+They are not put in instance metadata or fleet state. The deployment profile
+stores a keyed fingerprint, so changing, adding or removing custom variables
+requires a new deployment namespace, including secret rotation. Empty custom
+environments keep the original profile fingerprint for existing deployments.
+Keep real values in server-side secret configuration and never log the config or
+provider request. See `deploy/production.env.example` for the complete settings.
+
 ## Upgrading Nakama or the plugin
 
 1. Read the target Nakama release's `go.mod` and builder image. Update the runtime
