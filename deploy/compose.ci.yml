@@ -1,0 +1,18 @@
+# CI uses the official Docker Hub copies with the same pinned image digests.
+# scripts/ci-integration.sh derives these references from compatibility.env.
+x-ci-build-args: &ci-build-args
+  NAKAMA_IMAGE: ${CI_NAKAMA_IMAGE:?Run scripts/ci-integration.sh}
+  PLUGIN_BUILDER_IMAGE: ${CI_PLUGIN_BUILDER_IMAGE:?Run scripts/ci-integration.sh}
+
+services:
+  nakama-migrate:
+    image: ${CI_NAKAMA_IMAGE:?Run scripts/ci-integration.sh}
+  fleet-migrate:
+    build:
+      args: *ci-build-args
+  playflow-mock:
+    build:
+      args: *ci-build-args
+  nakama:
+    build:
+      args: *ci-build-args

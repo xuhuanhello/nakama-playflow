@@ -3,8 +3,11 @@ set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_dir"
-compose_file=deploy/compose.yml
-docker compose -f "$compose_file" up -d --build --wait --wait-timeout 180
+set -- -f deploy/compose.yml
+if [ -n "${FLEET_COMPOSE_OVERRIDE:-}" ]; then
+  set -- "$@" -f "$FLEET_COMPOSE_OVERRIDE"
+fi
+docker compose "$@" up -d --build --wait --wait-timeout 180
 
 # A health check alone does not prove that the plugin's InitModule succeeded.
 # The core exposes this protected endpoint only after registration is complete.

@@ -34,7 +34,7 @@ jobs:
           go-version: 1.27.1
           cache: true
       - name: Load the plugin in the official Nakama runtime
-        run: make integration
+        run: ./scripts/ci-integration.sh
       - name: Collect container logs
         if: always()
         run: docker compose -f deploy/compose.yml logs --no-color > compose.log

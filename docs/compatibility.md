@@ -97,6 +97,12 @@ and persistence; they create/delete only their own random test namespaces.
 Unit compilation alone cannot detect a host/plugin package hash
 mismatch. CI therefore performs the real runtime load in addition to race tests.
 
+CI runs `./scripts/ci-integration.sh`, which uses Heroic Labs' official Docker Hub
+images through `deploy/compose.ci.yml` to avoid the Heroic Labs registry's shared
+runner rate limit. The runtime and builder have the same immutable digests listed
+above; only the registry hostname changes. Dockerfile defaults, local Compose,
+and release packaging continue to use `registry.heroiclabs.com`.
+
 `make package` writes an archive such as:
 
 ```text
