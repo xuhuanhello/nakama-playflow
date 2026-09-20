@@ -89,8 +89,8 @@ official builder, disable automatic toolchain upgrades with `GOTOOLCHAIN=local`,
 assert the exact version, and build with `--trimpath --mod=readonly` and
 `CGO_ENABLED=1`. A host build on macOS is not a Linux runtime artifact.
 
-`make integration` starts the isolated Compose stack, waits for Nakama to become
-healthy, checks a plugin-owned authenticated status endpoint, and executes the
+`make integration` starts the isolated Compose stack, waits for the mock health
+endpoint and a plugin-owned authenticated status endpoint, and executes the
 PostgreSQL integration tests plus the smoke runner. The database tests verify
 cross-connection locking, admission uniqueness, rollback, namespace isolation,
 and persistence; they create/delete only their own random test namespaces.
