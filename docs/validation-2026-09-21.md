@@ -1,8 +1,8 @@
 # Validation — 2026-09-21
 
-Status: initial development integration accepted locally. Real PlayFlow and an actual game's FishNet adapter are not yet acceptance-tested.
+Status: targeted lifecycle acceptance passed on real PlayFlow with a game-specific Unity/FishNet adapter. Local/mock regressions and real cloud checks are distinguished below; these are not production capacity or latency certification.
 
-## Tested baseline
+## Local/mock baseline
 
 - Official Nakama `3.41.0`, official matching pluginbuilder, actual builder Go `1.27.1`, `nakama-common v1.48.0`.
 - Plugin `linux/amd64`, running under Docker Desktop on an Apple Silicon host.
@@ -12,7 +12,7 @@ Status: initial development integration accepted locally. Real PlayFlow and an a
 
 The archive's source revision is recorded as uncommitted; it is a local development artifact, not a public tagged release.
 
-## Checks performed
+## Local/mock checks performed
 
 | Check | Result and scope |
 | --- | --- |
@@ -21,7 +21,7 @@ The archive's source revision is recorded as uncommitted; it is a local developm
 | PlayFlow adapter/mock | Pass: pagination, limits, network ports, auth/redaction, ambiguous creation, 429, timeouts and stop retries |
 | PostgreSQL integration | 5 tests pass with `-race -count=1`: independent connection concurrency, admission exclusivity, rollback, namespace isolation and close/reopen persistence |
 | Official Nakama runtime | `.so` actually loads; FleetManager, matched hook, custom HTTP endpoint and RPCs register |
-| Real matchmaker flow | Real login + WebSocket matching creates three two-player rooms on two simulated physical workers; each user receives its own signed seat ticket |
+| Real Nakama matchmaker with simulated workers | Real login + WebSocket matching creates three two-player rooms on two simulated physical workers; each user receives its own signed seat ticket |
 | Authorization/cancel | Cross-user assignment denied; cancellation releases room only after simulated server cleanup acknowledgement |
 | Nakama restart | Same allocation/room ownership persists in PostgreSQL; heartbeats continue and a refreshed Nakama session obtains a new resume ticket |
 | Drain | Active rooms survive drain; pending results prevent provider stop; clearing work leads to stop confirmation; other worker's active room remains |
@@ -32,12 +32,36 @@ The archive's source revision is recorded as uncommitted; it is a local developm
 
 The first smoke run exposed an expired Nakama login token after its restart phase. The runner now uses the official session refresh endpoint on401 and retries once. The final full run passed with the same runtime behavior; token lifetimes were not bypassed or extended.
 
-## Remaining acceptance
+## Real PlayFlow and game acceptance
 
-- Actual FishNet transport handshake, authenticated room routing and game Host integration.
-- Real Linux game process startup on PlayFlow, actual account permissions, port mapping and returned TTL behavior.
-- Real game reconnect/replacement and result/replay upload ownership before room closure.
-- Capacity and timing measurements on the selected PlayFlow compute size, including simultaneous simulation bursts and deferred audits.
-- Multi-build/region routing, production rolling deployment, normalized high-throughput storage, operator repair tooling and additional scaling policy.
+The cloud runs used official Nakama `3.41.0` with the Go plugin, a real PostgreSQL-backed controller, and PlayFlow Free `small` instances in `sea` and `us-west`. The game server was a Unity `2022.3.62f3` Linux IL2CPP release build with a game-owned Host adapter and actual FishNet UDP transport. This adapter implements authentication, authoritative gameplay, reconnect and durable results; those game-specific parts are not supplied by the generic package.
 
-All simulated cloud workers used by the successful smoke run were stopped. The isolated Compose services and database volume were retained for inspection after validation. This validation did not create real PlayFlow resources or publish a GitHub Release or registry image.
+| Check | Observed result and scope |
+| --- | --- |
+| Single room, both regions | Two real UDP clients, four verified authoritative commands, one same-seat reconnect and durable result receipt before closure; protocol and cleanup passed, allocation reached `completed`. The default latency gate failed as recorded below. |
+| Unity Editor plus one UDP companion, `us-west` | Four verified commands across both players; the Editor recovered from an injected transport disconnect into the original room/seat, continued play, then initiated leave. Editor receipt, companion protocol checks and allocation cleanup passed. |
+| Two simultaneous rooms, `us-west` | Both rooms were ready concurrently on the same physical instance: four connected players, eight verified commands, two successful restores, and two of two allocations released as `completed`. This demonstrates room packing, not a measured capacity limit. |
+| Result and room lifecycle | The game's durable result receipt preceded room closure; closed-state acknowledgement allowed reclamation. No pending results remained after the successful cleanup. |
+| Idle instance shutdown | After the two-room run, the controller drained and stopped the only test instance within the 180-second observation window. This was a real single-instance scale-in observation, not a multi-instance scaling test. |
+
+The Editor and two-room runs explicitly used a 3,000 ms input-to-authoritative-begin p95 threshold for functional acceptance. The two-room run observed 474 ms input p95 from eight samples and transport RTT p50/p95 of 436/440 ms. That small sample does not supersede the single-room failures or establish a production SLO.
+
+## Latency measurements and limits
+
+The two single-room runs retained their failed overall latency result despite successful gameplay and cleanup:
+
+| Region | Transport RTT p50 | Input-to-authoritative-begin p95 | Input samples | Default 1,000 ms input gate |
+| --- | ---: | ---: | ---: | --- |
+| `sea` | 536 ms | 1,715 ms | 4 | Fail |
+| `us-west` | 434 ms | 1,404 ms | 4 | Fail |
+
+These are observations from the test network route, not regional performance benchmarks. With only four inputs per run, the reported p95 is the largest observed input delay. Raising the later functional-test threshold did not change or waive these failures.
+
+Remaining acceptance:
+
+- Sustained capacity and latency under representative player load, simultaneous simulation bursts, deferred audits and storage pressure.
+- Real horizontal scale-out and multi-instance drain/scale-in. The test account allowed one concurrent Free instance with a one-hour lifetime; the earlier mock run covered three rooms on two simulated workers, not real multi-worker cloud capacity.
+- Real cloud fault campaigns, including controller restart during active gameplay, extended callback/storage outages and lifetime-expiry recovery. The restart and forced-TTL regressions above used simulated game workers.
+- Multi-build/region routing, production rolling deployment, high-throughput storage and operator repair workflows.
+
+The successful mock workers and real cloud test instances were stopped after validation. Only anonymous aggregates are published here; private game source, raw reports, endpoints, instance/player identifiers and credentials are excluded. The earlier local package archive remains a development artifact, not a tagged release.
