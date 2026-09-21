@@ -2,11 +2,11 @@
 
 将 Nakama 社区版的匹配结果分配到 PlayFlow 托管的 Unity Linux 战斗服，支持一个进程承载多个双人房间。配套使用 [Unity Server Agent](https://github.com/xuhuanhello/playflow-server-nakama-plugin-unity)。
 
-社区项目，非 Heroic Labs、PlayFlow 或 Edgegap 官方插件。当前预发布版本为 [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1)，已完成真实 PlayFlow 与 Unity/FishNet 生命周期功能验证；生产延迟、容量和多实例扩容仍需验收。
+社区项目，非 Heroic Labs、PlayFlow 或 Edgegap 官方插件。当前预发布版本为 [v0.1.0-rc.2](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.2)，已完成真实 PlayFlow 与 Unity/FishNet 生命周期功能验证；生产延迟、容量和多实例扩容仍需验收。
 
 ## 实现了什么
 
-- 实现官方 Go FleetManager 接口及双人 Matchmaker hook，无需修改 Nakama 源码。
+- 实现官方 Go FleetManager 接口及双人 Matchmaker hook，在入队前校验兼容版本和区域，无需修改 Nakama 源码。
 - 对接 PlayFlow v3 实例创建、查询和停止，按房间容量分配玩家并签发短期入场凭证。
 - 持久化实例、房间、席位和控制命令，支持心跳、取消确认、重连凭证及重启恢复。
 - 按待分配需求扩容；排空后缩容，等待活跃房间和待提交结果处理完毕。
@@ -43,6 +43,8 @@ make integration
 1. 使用 [发布与部署说明](docs/releases.md) 中经过验证的 Release 镜像或插件包，固定 digest，并先执行配套 fleet 数据库迁移；源码构建可用 `make package`。
 2. 按 [生产配置模板](deploy/production.env.example) 配置 PlayFlow 凭证、构建版本、区域、机型、端口及云端可访问的 HTTPS 控制地址。
 3. 安装配套 Unity 包，实现游戏的房间管理、FishNet 入场认证、重连及结果持久化。具体职责见 [游戏接入清单](docs/game-integration.md)。
+
+兼容版本由游戏人工指定（如 `dm-v1`），沿用协议字段 `build_hash`，客户端与服务端须一致。
 
 已有 Go runtime 工程可调用 `fleetmanager.RegisterFromEnv` 组合接入，详见 [兼容与构建说明](docs/compatibility.md)。
 

@@ -1,21 +1,25 @@
 # Tagged releases and deployment
 
-The published candidate is [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1),
+The published candidate is [v0.1.0-rc.2](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.2),
 for **Nakama 3.41.0 / linux/amd64**.
 It remains a prerelease: real lifecycle acceptance does not establish production
 capacity, latency or high availability. The standard release workflow publishes:
 
 | Artifact | Candidate name |
 | --- | --- |
-| Nakama with the plugin | `ghcr.io/xuhuanhello/nakama-playflow:0.1.0-rc.1-nakama-3.41.0` |
-| Database migration tools | `ghcr.io/xuhuanhello/nakama-playflow-tools:0.1.0-rc.1-nakama-3.41.0` |
-| Standalone binaries | `nakama-playflow-0.1.0-rc.1-nakama-3.41.0-linux-amd64.tar.gz` |
+| Nakama with the plugin | `ghcr.io/xuhuanhello/nakama-playflow:0.1.0-rc.2-nakama-3.41.0` |
+| Database migration tools | `ghcr.io/xuhuanhello/nakama-playflow-tools:0.1.0-rc.2-nakama-3.41.0` |
+| Standalone binaries | `nakama-playflow-0.1.0-rc.2-nakama-3.41.0-linux-amd64.tar.gz` |
 | Release metadata | `images.json`, `compatibility.json`, `SHA256SUMS` |
 
-Download the assets from [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1).
+Download the assets from [v0.1.0-rc.2](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.2).
 The runtime and tools images are public. No `latest` tag is created. `images.json`
 records the immutable runtime and tools references; pin those digests in deployment
 configuration.
+
+rc.2 rejects incompatible versions or regions before Matchmaker queue admission.
+The wire field remains `build_hash`; use a manually chosen compatibility value
+such as `dm-v1`, shared by the client and fleet pool. See the [protocol](protocol-v1.md).
 
 ## Deployment
 
@@ -30,8 +34,9 @@ configuration.
    matching official Nakama image. Do not hide the runtime image's module with
    an empty mount over `/nakama/data` or `/nakama/data/modules`.
 5. Supply [production configuration](../deploy/production.env.example) through
-   server-side secrets. Set a new namespace, the exact game build/PlayFlow version,
-   region, capacity and port name. Set `FLEET_MODE=production` and a real HTTPS
+   server-side secrets. Set a new namespace, the application compatibility version
+   (`FLEET_BUILD_HASH`), exact PlayFlow build version, region, capacity and port name.
+   Set `FLEET_MODE=production` and a real HTTPS
    `FLEET_CONTROL_URL`; the PlayFlow API base ends in `/api`, without `/v3`.
 6. Terminate TLS at the ingress and preserve WebSocket upgrades for Nakama clients.
    Route `/fleet/v1/agent/bootstrap` and `/fleet/v1/agent/heartbeat` to Nakama's
@@ -57,11 +62,11 @@ Drain active cloud rooms first; restarting Nakama alone does not drain them.
 
 Commit the reviewed release changes on `main`, pass Validate and Secret scan, then
 create and push an unused version tag from that clean commit. For example, the
-next candidate could be `v0.1.0-rc.2`; do not reuse the published `v0.1.0-rc.1`:
+next candidate could be `v0.1.0-rc.3`; do not reuse the published `v0.1.0-rc.2`:
 
 ```sh
-git tag -a v0.1.0-rc.2 -m "Nakama 3.41.0 release candidate 2"
-git push origin v0.1.0-rc.2
+git tag -a v0.1.0-rc.3 -m "Nakama 3.41.0 release candidate 3"
+git push origin v0.1.0-rc.3
 ```
 
 The release workflow accepts tag pushes or a manual dispatch for an existing tag.
@@ -85,9 +90,9 @@ Do not rerun its publishing step or move/reuse the tag. Download its `images.jso
 and finish the existing draft after verification:
 
 ```sh
-gh release download v0.1.0-rc.2 --repo xuhuanhello/nakama-playflow --pattern images.json --dir /tmp/playflow-release-check
+gh release download v0.1.0-rc.3 --repo xuhuanhello/nakama-playflow --pattern images.json --dir /tmp/playflow-release-check
 python3 scripts/release.py verify-public --manifest /tmp/playflow-release-check/images.json
-gh release edit v0.1.0-rc.2 --repo xuhuanhello/nakama-playflow --draft=false --prerelease
+gh release edit v0.1.0-rc.3 --repo xuhuanhello/nakama-playflow --draft=false --prerelease
 ```
 
 If failure occurred before all images/assets were uploaded, inspect that draft
