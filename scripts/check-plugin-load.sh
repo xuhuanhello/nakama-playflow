@@ -7,7 +7,11 @@ set -- -f deploy/compose.yml
 if [ -n "${FLEET_COMPOSE_OVERRIDE:-}" ]; then
   set -- "$@" -f "$FLEET_COMPOSE_OVERRIDE"
 fi
-docker compose "$@" up -d --build
+case "${FLEET_COMPOSE_SKIP_BUILD:-false}" in
+  true) docker compose "$@" up -d --no-build ;;
+  false) docker compose "$@" up -d --build ;;
+  *) printf 'FLEET_COMPOSE_SKIP_BUILD must be true or false.\n' >&2; exit 1 ;;
+esac
 
 response_file=$(mktemp)
 trap 'rm -f "$response_file"' EXIT HUP INT TERM

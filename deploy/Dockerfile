@@ -18,14 +18,22 @@ RUN --mount=type=cache,id=nakama-playflow-go1.27.1-linux-amd64,target=/root/.cac
 
 # Tools run only as explicit migration/development services.
 FROM ${NAKAMA_IMAGE} AS tools
+ARG PLUGIN_VERSION=0.1.0-dev
+ARG VCS_REF=uncommitted
+LABEL org.opencontainers.image.title="Nakama PlayFlow migration tools" \
+      org.opencontainers.image.version="${PLUGIN_VERSION}" \
+      org.opencontainers.image.source="https://github.com/xuhuanhello/nakama-playflow" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="MIT"
 HEALTHCHECK NONE
 COPY --from=builder /out/fleet-migrate /usr/local/bin/fleet-migrate
 COPY --from=builder /out/playflow-mock /usr/local/bin/playflow-mock
 ENTRYPOINT ["/usr/local/bin/fleet-migrate"]
 
-# This target supports extracting a plugin without copying the runtime image.
+# Extract both the module and its independent database migration tool.
 FROM scratch AS artifact
 COPY --from=builder /out/playflow.so /playflow.so
+COPY --from=builder /out/fleet-migrate /fleet-migrate
 
 FROM ${NAKAMA_IMAGE} AS runtime
 ARG PLUGIN_VERSION=0.1.0-dev
@@ -34,6 +42,7 @@ LABEL org.opencontainers.image.title="Nakama PlayFlow FleetManager" \
       org.opencontainers.image.version="${PLUGIN_VERSION}" \
       org.opencontainers.image.source="https://github.com/xuhuanhello/nakama-playflow" \
       org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.description="Official Nakama runtime with the PlayFlow FleetManager module" \
       io.nakama.version="3.41.0" \
       io.nakama.go.version="1.27.1" \

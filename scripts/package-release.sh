@@ -44,13 +44,14 @@ EOF
 
 cd "$artifact_dir"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum playflow.so compatibility.json build-metadata.json > SHA256SUMS
+  sha256sum playflow.so fleet-migrate compatibility.json build-metadata.json > SHA256SUMS
 else
-  shasum -a 256 playflow.so compatibility.json build-metadata.json > SHA256SUMS
+  shasum -a 256 playflow.so fleet-migrate compatibility.json build-metadata.json > SHA256SUMS
 fi
 cd "$repo_dir/dist"
 tar -czf "$artifact_name.tar.gz" \
   "$artifact_name/playflow.so" \
+  "$artifact_name/fleet-migrate" \
   "$artifact_name/compatibility.json" \
   "$artifact_name/build-metadata.json" \
   "$artifact_name/SHA256SUMS"

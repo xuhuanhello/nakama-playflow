@@ -1,0 +1,86 @@
+name: Release Nakama-compatible images
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag on main, for example v0.1.0-rc.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      packages: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check full history for credentials before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          scanner_dir="$RUNNER_TEMP/release-gitleaks"
+          mkdir -p "$scanner_dir"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$scanner_dir/gitleaks.tar.gz"
+          printf '%s  %s\n' \
+            '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' \
+            "$scanner_dir/gitleaks.tar.gz" | sha256sum --check -
+          tar -xzf "$scanner_dir/gitleaks.tar.gz" -C "$scanner_dir" gitleaks
+          "$scanner_dir/gitleaks" git --redact=100 --no-banner --log-opts="--all" .
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.1
+          cache: true
+      - name: Validate release tooling
+        run: python3 -B -m unittest discover -s scripts -p test_release.py
+      - name: Build once and test the release images
+        run: python3 scripts/release.py prepare --tag "$RELEASE_TAG" --repository "$IMAGE_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-${{ env.RELEASE_TAG }}-nakama-3.41.0-linux-amd64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable version tags and a GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/release.py publish --tag "$RELEASE_TAG" --repository "$IMAGE_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-metadata-${{ env.RELEASE_TAG }}
+          path: |
+            dist/SHA256SUMS
+            dist/*/images.json
+            dist/*/compatibility.json
+          if-no-files-found: ignore

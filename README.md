@@ -40,7 +40,7 @@ make integration
 
 接入真实 PlayFlow：
 
-1. 用 `make package` 构建插件，按 [官方镜像安装说明](docs/compatibility.md#installing-with-the-official-image) 部署，并先执行 fleet 数据库迁移。
+1. 使用 [发布与部署说明](docs/releases.md) 中经过验证的 Release 镜像或插件包，固定 digest，并先执行配套 fleet 数据库迁移；源码构建可用 `make package`。
 2. 按 [生产配置模板](deploy/production.env.example) 配置 PlayFlow 凭证、构建版本、区域、机型、端口及云端可访问的 HTTPS 控制地址。
 3. 安装配套 Unity 包，实现游戏的房间管理、FishNet 入场认证、重连及结果持久化。具体职责见 [游戏接入清单](docs/game-integration.md)。
 
@@ -53,7 +53,7 @@ make integration
 - 官方 Nakama Unity SDK 无需修改，但游戏必须完成 Host 适配和连接流程。不要同时加载两个接管默认 FleetManager 或 Matchmaker hook 的插件。
 - 房间上限、扩缩容阈值和实例 TTL 需通过真实 Linux 战斗服压测确定；示例值不是容量承诺。
 - 本地 Compose 仅用于开发。真实凭证只放入服务端密钥配置，不进入 Git、Unity 客户端或日志。安全事项见 [SECURITY.md](SECURITY.md)。
-- `main` 为开发分支；可重复部署请固定经过验证的 commit SHA。
+- `main` 为开发分支；可重复部署请固定 Release 的镜像 digest 或经过验证的 commit SHA。
 
 ## 协议与许可证
 

@@ -109,7 +109,7 @@ and release packaging continue to use `registry.heroiclabs.com`.
 dist/nakama-playflow-0.1.0-nakama-3.41.0-linux-amd64.tar.gz
 ```
 
-The archive contains `playflow.so`, version/source compatibility metadata,
+The archive contains `playflow.so`, the standalone `fleet-migrate` executable, version/source compatibility metadata,
 BuildKit metadata, and SHA-256 checksums. Official runtime and builder references
 include both the release tag and the verified immutable digest. Package metadata
 records those exact references so the source build can be traced to its runtime.
@@ -118,6 +118,8 @@ use a clean tagged commit when producing a public release.
 
 The manual package workflow uploads a GitHub Actions artifact for review. It does
 not publish a GitHub Release, upload to PlayFlow, or push an image to a registry.
+The separate tag-triggered [release workflow](releases.md) publishes tested runtime
+and tools images, binaries, checksums and immutable registry digest references.
 
 ## Running locally
 
