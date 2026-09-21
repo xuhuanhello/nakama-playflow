@@ -11,11 +11,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/heroiclabs/nakama-common/rtapi"
 	"github.com/heroiclabs/nakama-common/runtime"
 )
 
 // Register installs the standard manager and game bridge. This application owns
-// the single matchmaker-matched hook; existing games must compose that hook.
+// MatchmakerAdd before hook and the single matchmaker-matched hook; existing
+// games must compose these hooks.
 func Register(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, initializer runtime.Initializer, m *Manager) error {
 	if err := initializer.RegisterFleetManager(m); err != nil {
 		return err
@@ -27,6 +29,37 @@ func Register(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime
 			return err
 		}
 	}
+	if err := registerPlayerHooks(initializer, m); err != nil {
+		return err
+	}
+	background, cancel := context.WithCancel(context.Background())
+	if err := initializer.RegisterShutdown(func(context.Context, runtime.Logger, *sql.DB, runtime.NakamaModule) { cancel() }); err != nil {
+		cancel()
+		return err
+	}
+	go m.Run(background, func(err error) { logger.Error("fleet reconciliation: %v", err) })
+	logger.Info("PlayFlow FleetManager registered; namespace=%s mode=%s rooms=%d", m.cfg.DeploymentID, m.cfg.Mode, m.cfg.MaxRooms)
+	return nil
+}
+
+// Register these hooks together so incompatible tickets are rejected before
+// queue admission, while the matched hook still validates the final pairing.
+func registerPlayerHooks(initializer runtime.Initializer, m *Manager) error {
+	if err := initializer.RegisterBeforeRt("MatchmakerAdd", func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, in *rtapi.Envelope) (*rtapi.Envelope, error) {
+		request := in.GetMatchmakerAdd()
+		if request == nil {
+			return nil, runtime.NewError("invalid matchmaker request", 3)
+		}
+		properties := request.GetStringProperties()
+		if err := m.validateClientProfile(properties["build_hash"], properties["region"]); err != nil {
+			return nil, err
+		}
+		// Preserve the original envelope, including group queries, extra string
+		// or numeric properties, counts, and correlation ID.
+		return in, nil
+	}); err != nil {
+		return err
+	}
 	if err := initializer.RegisterMatchmakerMatched(func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, entries []runtime.MatchmakerEntry) (string, error) {
 		if len(entries) != 2 {
 			return "", runtime.NewError("DM requires two players", 3)
@@ -35,8 +68,10 @@ func Register(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime
 		tickets := make([]string, 0, 2)
 		for _, entry := range entries {
 			props := entry.GetProperties()
-			if props["build_hash"] != m.cfg.BuildHash || props["region"] != m.cfg.Region {
-				return "", runtime.NewError("incompatible build or region", 9)
+			buildHash, _ := props["build_hash"].(string)
+			region, _ := props["region"].(string)
+			if err := m.validateClientProfile(buildHash, region); err != nil {
+				return "", err
 			}
 			users = append(users, entry.GetPresence().GetUserId())
 			tickets = append(tickets, entry.GetTicket())
@@ -57,22 +92,7 @@ func Register(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime
 	}{{"fleet_assignment_get_v1", false}, {"fleet_resume_v1", true}} {
 		resume := route.resume
 		if err := initializer.RegisterRpc(route.name, func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
-			user, _ := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
-			if user == "" {
-				return "", runtime.NewError("user authentication required", 16)
-			}
-			var request struct {
-				AllocationID string `json:"allocation_id"`
-			}
-			if payload != "" && json.Unmarshal([]byte(payload), &request) != nil {
-				return "", runtime.NewError("invalid payload", 3)
-			}
-			assignment, err := m.Assignment(ctx, user, request.AllocationID, resume)
-			if err != nil {
-				return "", runtimeError(err)
-			}
-			body, err := json.Marshal(assignment)
-			return string(body), err
+			return m.assignmentRPC(ctx, payload, resume)
 		}); err != nil {
 			return err
 		}
@@ -95,15 +115,62 @@ func Register(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime
 	}); err != nil {
 		return err
 	}
-	background, cancel := context.WithCancel(context.Background())
-	if err := initializer.RegisterShutdown(func(context.Context, runtime.Logger, *sql.DB, runtime.NakamaModule) { cancel() }); err != nil {
-		cancel()
-		return err
-	}
-	go m.Run(background, func(err error) { logger.Error("fleet reconciliation: %v", err) })
-	logger.Info("PlayFlow FleetManager registered; namespace=%s mode=%s rooms=%d", m.cfg.DeploymentID, m.cfg.Mode, m.cfg.MaxRooms)
 	return nil
 }
+
+func (m *Manager) validateClientProfile(buildHash, region string) error {
+	if buildHash != m.cfg.BuildHash {
+		return runtime.NewError("fleet_build_mismatch", 9)
+	}
+	if region != m.cfg.Region {
+		return runtime.NewError("fleet_region_mismatch", 9)
+	}
+	return nil
+}
+
+type assignmentRequest struct {
+	AllocationID string          `json:"allocation_id"`
+	BuildHash    json.RawMessage `json:"build_hash"`
+	Region       json.RawMessage `json:"region"`
+}
+
+func (m *Manager) assignmentRPC(ctx context.Context, payload string, resume bool) (string, error) {
+	user, _ := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+	if user == "" {
+		return "", runtime.NewError("user authentication required", 16)
+	}
+	var request assignmentRequest
+	if payload != "" && json.Unmarshal([]byte(payload), &request) != nil {
+		return "", runtime.NewError("invalid payload", 3)
+	}
+	// Omitted profile fields preserve older SDK requests. A provided field
+	// (including an empty string or null) must match before any allocation lookup.
+	for _, field := range []struct {
+		payload            json.RawMessage
+		expected, mismatch string
+	}{
+		{request.BuildHash, m.cfg.BuildHash, "fleet_build_mismatch"},
+		{request.Region, m.cfg.Region, "fleet_region_mismatch"},
+	} {
+		if field.payload == nil {
+			continue
+		}
+		var value *string
+		if err := json.Unmarshal(field.payload, &value); err != nil {
+			return "", runtime.NewError("invalid payload", 3)
+		}
+		if value == nil || *value != field.expected {
+			return "", runtime.NewError(field.mismatch, 9)
+		}
+	}
+	assignment, err := m.Assignment(ctx, user, request.AllocationID, resume)
+	if err != nil {
+		return "", runtimeError(err)
+	}
+	body, err := json.Marshal(assignment)
+	return string(body), err
+}
+
 func runtimeError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
