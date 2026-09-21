@@ -1,6 +1,7 @@
 # Tagged releases and deployment
 
-The first candidate is `v0.1.0-rc.1`, for **Nakama 3.41.0 / linux/amd64**.
+The published candidate is [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1),
+for **Nakama 3.41.0 / linux/amd64**.
 It remains a prerelease: real lifecycle acceptance does not establish production
 capacity, latency or high availability. The standard release workflow publishes:
 
@@ -11,10 +12,10 @@ capacity, latency or high availability. The standard release workflow publishes:
 | Standalone binaries | `nakama-playflow-0.1.0-rc.1-nakama-3.41.0-linux-amd64.tar.gz` |
 | Release metadata | `images.json`, `compatibility.json`, `SHA256SUMS` |
 
-Use an actual published [GitHub Release](https://github.com/xuhuanhello/nakama-playflow/releases).
-An example name is not proof that its release has been published. No `latest` tag
-is created. `images.json` records the immutable runtime and tools references;
-pin those digests in deployment configuration.
+Download the assets from [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1).
+The runtime and tools images are public. No `latest` tag is created. `images.json`
+records the immutable runtime and tools references; pin those digests in deployment
+configuration.
 
 ## Deployment
 
@@ -55,11 +56,12 @@ Drain active cloud rooms first; restarting Nakama alone does not drain them.
 ## Maintainer release procedure
 
 Commit the reviewed release changes on `main`, pass Validate and Secret scan, then
-create and push a new tag from that clean commit:
+create and push an unused version tag from that clean commit. For example, the
+next candidate could be `v0.1.0-rc.2`; do not reuse the published `v0.1.0-rc.1`:
 
 ```sh
-git tag -a v0.1.0-rc.1 -m "Nakama 3.41.0 release candidate 1"
-git push origin v0.1.0-rc.1
+git tag -a v0.1.0-rc.2 -m "Nakama 3.41.0 release candidate 2"
+git push origin v0.1.0-rc.2
 ```
 
 The release workflow accepts tag pushes or a manual dispatch for an existing tag.
@@ -75,17 +77,17 @@ Publishing uses the workflow's `GITHUB_TOKEN` with `contents:write` and
 `packages:write`. No PlayFlow key, game credentials or extra personal access token
 is needed. Standard artifacts contain only generic plugin binaries and metadata.
 
-GitHub makes a newly created container package private by default. On the first
-release, make **both** packages public in their package settings, following
+GitHub makes a newly created container package private by default. When publishing
+a new package namespace, make **both** packages public in their settings, following
 [GitHub's visibility instructions](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
 If anonymous verification failed, the already uploaded release remains a draft.
 Do not rerun its publishing step or move/reuse the tag. Download its `images.json`
 and finish the existing draft after verification:
 
 ```sh
-gh release download v0.1.0-rc.1 --repo xuhuanhello/nakama-playflow --pattern images.json --dir /tmp/playflow-release-check
+gh release download v0.1.0-rc.2 --repo xuhuanhello/nakama-playflow --pattern images.json --dir /tmp/playflow-release-check
 python3 scripts/release.py verify-public --manifest /tmp/playflow-release-check/images.json
-gh release edit v0.1.0-rc.1 --repo xuhuanhello/nakama-playflow --draft=false --prerelease
+gh release edit v0.1.0-rc.2 --repo xuhuanhello/nakama-playflow --draft=false --prerelease
 ```
 
 If failure occurred before all images/assets were uploaded, inspect that draft

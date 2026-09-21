@@ -2,7 +2,7 @@
 
 将 Nakama 社区版的匹配结果分配到 PlayFlow 托管的 Unity Linux 战斗服，支持一个进程承载多个双人房间。配套使用 [Unity Server Agent](https://github.com/xuhuanhello/playflow-server-nakama-plugin-unity)。
 
-社区项目，非 Heroic Labs、PlayFlow 或 Edgegap 官方插件。当前为 `0.1.0-dev`，已完成真实 PlayFlow 与 Unity/FishNet 生命周期功能验证；生产延迟、容量和多实例扩容仍需验收。
+社区项目，非 Heroic Labs、PlayFlow 或 Edgegap 官方插件。当前预发布版本为 [v0.1.0-rc.1](https://github.com/xuhuanhello/nakama-playflow/releases/tag/v0.1.0-rc.1)，已完成真实 PlayFlow 与 Unity/FishNet 生命周期功能验证；生产延迟、容量和多实例扩容仍需验收。
 
 ## 实现了什么
 
